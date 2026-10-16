@@ -19,7 +19,7 @@
   html,body{width:100%;height:100%;overflow:hidden;background:#EFEBE2}
   body{font-family:KaiTi,"楷体","STKaiti",serif;color:var(--ink);user-select:none}
   #stage{position:absolute;left:50%;top:50%;width:1600px;height:900px;overflow:hidden;background:var(--paper);transform-origin:50% 50%;transform:translate(-50%,-50%)}
-  .layer{position:absolute;inset:0;width:1600px;height:900px;pointer-events:none;transition:transform .6s cubic-bezier(.2,.7,.3,1)}
+  .layer{position:absolute;inset:0;width:1600px;height:900px;pointer-events:none;will-change:transform;transition:transform .6s cubic-bezier(.2,.7,.3,1)}
   #gl{position:absolute;inset:0;width:1600px;height:900px;touch-action:none;cursor:grab;
     /* 坛只在人物左侧显示，放大时淡入雾中，不与张丘建重叠 */
     -webkit-mask-image:linear-gradient(90deg,#000 0,#000 1040px,transparent 1180px);mask-image:linear-gradient(90deg,#000 0,#000 1040px,transparent 1180px)}
@@ -67,8 +67,7 @@
   /* 张丘建（分层立绘：挥手 + 口型 + 眨眼，canvas 逐帧绘制） */
   #npc{position:absolute;left:1272px;top:266px;width:280px;height:470px;cursor:pointer;overflow:visible}
   #npc .shadow{position:absolute;left:60px;bottom:-6px;width:180px;height:18px;border-radius:50%;background:#5A5348;opacity:.18;filter:blur(3px)}
-  #npcCv{position:absolute;left:50%;bottom:0;height:470px;margin-left:-62px;transform:translateX(-50%);transform-origin:73% 100%;filter:saturate(.72) drop-shadow(0 5px 7px rgba(60,50,35,.12))}
-  #npc:hover #npcCv{filter:saturate(.85) drop-shadow(0 5px 9px rgba(60,50,35,.18))}
+  #npcCv{position:absolute;left:50%;bottom:0;height:470px;margin-left:-62px;transform:translateX(-50%);transform-origin:73% 100%;will-change:transform}
 
   /* 标题、按钮、开场 */
   #title{position:absolute;left:62px;top:126px;writing-mode:vertical-rl;font-size:54px;letter-spacing:18px;color:var(--ink);pointer-events:none}
@@ -188,7 +187,7 @@ var mid=document.getElementById('Lmid');
     el('path',{d:'M108 46 C140 50 150 76 190 66 C170 84 130 82 108 62',fill:'#CDAA7C'},g);
   }
   cloud(36,620,.7,false,.15,40);cloud(1250,140,.5,true,.12,48);
-  var bam=el('g',{opacity:.26,filter:blur(mid,'bm',.4)},mid);
+  var bam=el('g',{opacity:.26},mid);
   [[0,-10,250,190],[30,-20,330,150]].forEach(function(s){el('path',{d:'M'+s[0]+' '+s[1]+' Q'+(s[2]*.4)+' '+(s[3]*.3)+' '+s[2]+' '+s[3],fill:'none',stroke:'#9E8460','stroke-width':2.2},bam);});
   var lr=rnd(21);
   for(var k=0;k<15;k++){
@@ -218,9 +217,11 @@ var mid=document.getElementById('Lmid');
 /* ================= 前景：雾、毛笔 ================= */
 var front=document.getElementById('Lfront');
 (function(){
-  var mb=blur(front,'mist',28);
+  // 雾：径向渐变代替大半径高斯模糊（模糊滤镜随动画每帧重算，很卡）
+  var mg=el('radialGradient',{id:'mistG'},defs(front));
+  el('stop',{offset:0,'stop-color':'#FFFFFF','stop-opacity':1},mg);el('stop',{offset:.45,'stop-color':'#FFFFFF','stop-opacity':.75},mg);el('stop',{offset:1,'stop-color':'#FFFFFF','stop-opacity':0},mg);
   [[230,700,320,50,.75,40],[620,742,420,42,.55,55],[1100,705,380,50,.6,47],[1450,650,260,60,.55,38],[60,640,240,50,.6,60]].forEach(function(m){
-    var e=el('ellipse',{cx:m[0],cy:m[1],rx:m[2],ry:m[3],fill:'#FFFFFF',opacity:m[4],filter:mb,'class':'drift'},front);
+    var e=el('ellipse',{cx:m[0],cy:m[1],rx:m[2]+50,ry:m[3]+40,fill:'url(#mistG)',opacity:m[4],'class':'drift'},front);
     e.style.animationDuration=m[5]+'s';e.style.animationDelay=(-m[5]/2)+'s';});
   var g=el('g',{transform:'translate(1528 840)',opacity:.16},front);
   el('path',{d:'M-60 20 C-80 0 -50 -30 -20 -18 C0 -40 40 -20 30 10 C50 20 20 40 -10 34 C-40 44 -70 36 -60 20Z',fill:'#3A3734',opacity:.55,filter:blur(front,'inkb',3)},g);
@@ -264,7 +265,7 @@ function progress(now){ // 0..1
   if(!talking)return 1;return Math.min(1,(now-speech.start)/speech.dur);
 }
 
-var mouth=0,pose=0,poseV=0,lastTalk=-1e9,blinkAt=performance.now()+2500,blinkS=-1000,lastFrame=performance.now();
+var lastKey='',lastTf='',mouth=0,pose=0,poseV=0,lastTalk=-1e9,blinkAt=performance.now()+2500,blinkS=-1000,lastFrame=performance.now();
 function ease(x){return x*x*(3-2*x);}
 function drawNPC(now){
   var t=now/1000,target=0,idx=speech.text.length;
@@ -301,21 +302,26 @@ function drawNPC(now){
   // 眨眼
   if(now>blinkAt){blinkS=now;blinkAt=now+2600+Math.random()*3200;}
   var bl=now-blinkS,lid=bl<170?Math.sin(Math.PI*bl/170):0;
+  var mq=Math.round(mouth*20),lq=Math.round(lid*8),key=fi0()+'|'+mq+'|'+lq+'|'+(imageReady(IMG.rest)?1:0)+(imageReady(IMG.base)?1:0)+(imageReady(IMG['f'+fi0()])?1:0)+(imageReady(IMG.mouth)?1:0);
+  function fi0(){return Math.max(0,Math.min(6,Math.round(p*6)));}
+  if(key!==lastKey){lastKey=key;
   cx.clearRect(0,0,ZQ.W,ZQ.H);
   // 骨骼式手臂：身体一层，手臂（含垂袖）网格变形，绕肩转动；p=0 垂手，p=1 摊掌指向圜丘坛
   // 逐帧动作：7 张画好的姿势（握简 → 手离竹简 → 手到胯旁 → 外展 → 抬起 → 摊掌指向圜丘坛），按姿势进度直接切帧，不叠图、不变形
   var fi=Math.max(0,Math.min(6,Math.round(p*6)));
-  cx.save();cx.setTransform(-1,0,0,1,ZQ.W,0);
+  cx.save();cx.filter='saturate(.72)';cx.setTransform(-1,0,0,1,ZQ.W,0);
   if(fi===0){if(imageReady(IMG.rest))cx.drawImage(IMG.rest,0,0,ZQ.W,ZQ.H);}
   else if(imageReady(IMG.base)&&imageReady(IMG['f'+fi])){var sp=ZQ.split;cx.drawImage(IMG.base,0,0,sp+4,ZQ.H,0,0,sp+4,ZQ.H);cx.drawImage(IMG['f'+fi],sp,0);}
-  cx.restore();
+  cx.restore();cx.filter='saturate(.72)';
   if(mouth>.02&&imageReady(IMG.mouth)){cx.globalAlpha=Math.min(1,mouth*1.1);cx.drawImage(IMG.mouth,ZQ.mouth[0],ZQ.mouth[1]);cx.globalAlpha=1;}
   if(lid>0)ZQ.eyes.forEach(function(e){
     var h=7*lid,r=ZQ.eyeR;cx.fillStyle=ZQ.skin;cx.beginPath();cx.ellipse(e[0],e[1]-3.5+h/2,r,h/2+.5,0,0,Math.PI*2);cx.fill();
     cx.strokeStyle='#3A2C22';cx.lineWidth=1.2;cx.beginPath();cx.moveTo(e[0]-r+1,e[1]-3.5+h);cx.quadraticCurveTo(e[0],e[1]-2+h,e[0]+r-1,e[1]-3.5+h);cx.stroke();});
+  cx.filter='none';
+  }
   // 呼吸；抬手时身体略向圜丘坛一侧倾，说话时随语气轻轻点头
   var sc=1+.0025*Math.sin(t*1.25),rot=-.5*p+(talking?.25*Math.sin(t*1.7)*mouth:0);
-  cv.style.transform='translateX(-50%) rotate('+rot.toFixed(3)+'deg) scale('+sc.toFixed(4)+','+(1+(sc-1)*2).toFixed(4)+')';
+  var tf='translateX(-50%) rotate('+rot.toFixed(3)+'deg) scale('+sc.toFixed(4)+','+(1+(sc-1)*2).toFixed(4)+')';if(tf!==lastTf){lastTf=tf;cv.style.transform=tf;}
   if(talking&&speech.text&&progress(now)>=1&&(!audio||audio.paused||!voiceOn))stopTalk();
   requestAnimationFrame(drawNPC);
 }
